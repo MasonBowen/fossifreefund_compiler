@@ -10,6 +10,7 @@ import requests
 import pandas as pd
 import os
 import re
+import numpy as np
 
 #%%
 
@@ -27,7 +28,7 @@ j = r.json()
 #%%
 df = pd.DataFrame(j)
 
-df.to_csv(os.path.join(dir_file_base, "stocks_total.csv"), index=False)
+#df.to_csv(os.path.join(dir_file_base, "stocks_total.csv"), index=False)
 
 #%%
 colkeep = ['ticker', 'name', # tracking id info
@@ -103,7 +104,7 @@ df_slim = df_slim.loc[(~df_slim['name'].str.contains(re.compile('Healthcare|Heal
 df_final = df_slim.copy()
 
 # clean 200 companies metric best 30% (would it be better to set as separate variable elsewhere and hide most of code?)
-df_final = df_final.loc[(df_final.cl_weight >= df_slim.cl_weight.quantile(q=.3))]
+df_final = df_final.loc[(df_final.cl_weight >= df_slim.cl_weight.quantile(q=.4))]
 
 # fossil fuel related metrics, best 10% (mostly already super low by this point)
 df_final = df_final.loc[(df_final.c2f5coogutweight <= df_slim.c2f5coogutweight.quantile(q=.1))]
@@ -126,12 +127,37 @@ df_final = df_final.loc[temp.groupby(['fund_legal_name']).head(1).index][:]
 
 df_final.to_csv(os.path.join(dir_file_base, "stocks_filtered.csv"), index=False)
 
+#%% 
+# want to be able to bin remaining stocks by relative carbon footprint 
+# so that I can sort by bin and then by rate of return
+# say for instance we have two stocks A and B, A has a rel carbon footprint of 46.5 and
+# B has a rel carbon footprint of 50. A's trailing 5 year returns are abysmal, let's say .02%,
+# but B's trailing 5 year returns are ~12% (very solid). I want to choose B because 
+# the carbon impact is about the same.
+
+# produces bins with equal number of values in each
+#df_final['carbon_bin'] = pd.qcut(df_final['portfolio_carbon_relative_carbon_footprint'], 
+#        int(round(df_final.shape[0]/3, ndigits=0)),
+#        labels=range(1, int(round(df_final.shape[0]/3, ndigits=0))+1))
+
+# produces bins of equal distance (Better IMO)
+# have to play around with num_bins
+
+num_bins = int(round(df_final.shape[0]/2, ndigits=0))
+
+bins = list(np.linspace(df_final['portfolio_carbon_relative_carbon_footprint'].min()-1,
+                        df_final['portfolio_carbon_relative_carbon_footprint'].max()+1,
+                        num_bins))
+
+df_final['carbon_bin'] = pd.cut(df_final['portfolio_carbon_relative_carbon_footprint'],
+       bins, labels= range(1, num_bins))
 #%%
 
 #df_slim.sort_values(['fund_id', 'fund_legal_name', 'ticker'],  ascending=True, inplace=True)
 # want a separate condensed cleaned up csv that I could potentially share with others or fund managers
 colkeeptwo = ['ticker', 'fund_legal_name', 'fund_id', 'category_group', 'inception_date', 'number_of_holding',
-              'trailing_return_y1', 'trailing_return_y3', 'trailing_return_y5', 'trailing_return_y10', 'trailing_return_y15',
+              'trailing_return_y1', 'trailing_return_y3', 'trailing_return_y5', 'trailing_return_y10', 'trailing_return_y15', 
+              'portfolio_carbon_relative_carbon_footprint', 'carbon_bin',
               'morningstar_url']
 
 df_final = df_final.loc[:, colkeeptwo]
@@ -149,6 +175,8 @@ df_final.rename(columns={'ticker': 'Ticker',
                         'trailing_return_y5': 'Trailing 5-Yr Returns',
                         'trailing_return_y10': 'Trailing 10-Yr Returns',
                         'trailing_return_y15': 'Trailing 15-Yr Returns',
+                        'portfolio_carbon_relative_carbon_footprint': 'Rel. Carbon Footprint',
+                        'carbon_bin': 'Carbon Bin',
                         'morningstar_url': 'Morningstar Website'}, inplace=True)
 
 #%%
